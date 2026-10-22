@@ -81,7 +81,10 @@ const log=s=>{G.lg.unshift(s);G.lg.length=Math.min(G.lg.length,5);$('#log').inne
 function los(a,b){const d=D(a,b),n=Math.ceil(d/10);for(let i=1;i<n;i++){const px=a.x+(b.x-a.x)*i/n,py=a.y+(b.y-a.y)*i/n;if(G.A.walls.some(w=>rc(w,px,py,1)))return 0}return 1}
 const bushOf=u=>G.A.bush.findIndex(r=>rc(r,u.x,u.y));
 // Hiding: a hidden unit is only spotted up close (40px; 55 for assassins; 85 when both stand in the same bush; 30 under the shadow ult).
-const vis=(a,b)=>{const d=D(a,b);if(d>=175)return false;if(b.hid){const bi=bushOf(b),lim=b.stl>0?30:bi>=0&&bi===bushOf(a)?85:a.k=='ass'?55:40;if(d>=lim)return false}return los(a,b)};
+const vis=(a,b)=>{const d=D(a,b);if(d>=175)return false;
+  // Domain barrier: nobody can see across the edge of an active domain (inside <-> outside).
+  if(G.dom){const q=G.dom;if((Math.hypot(a.x-q.x,a.y-q.y)<q.r)!==(Math.hypot(b.x-q.x,b.y-q.y)<q.r))return false}
+  if(b.hid){const bi=bushOf(b),lim=b.stl>0?30:bi>=0&&bi===bushOf(a)?85:a.k=='ass'?55:40;if(d>=lim)return false}return los(a,b)};
 const inLava=(px,py,m=0)=>G.A.lava.some(l=>rc(l,px,py,m));
 function bad(u,px,py){return(inLava(px,py,6)&&!inLava(u.x,u.y))||G.tr.some(t=>(t.o===null||t.o===u||u.kt.has(t.id))&&Math.hypot(t.x-px,t.y-py)<17)}
 function mv(u,dx,dy){if(!blocked(u.x+dx,u.y))u.x+=dx;if(!blocked(u.x,u.y+dy))u.y+=dy}
@@ -296,18 +299,26 @@ function naPath(u){const en=G.us.filter(e=>e.al&&e!==u&&vis(u,e));
     const f=seg[i]?Math.min(1,sd/seg[i]):1,a=pts[i],b=pts[i+1],dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1,w=b.t&&L>60?Math.sin(Math.PI*f)*9*(i%2?1:-1):0;
     let px=a.x+dx*f-dy/L*w,py=a.y+dy*f+dx/L*w;px=Math.max(R+2,Math.min(W-R-2,px));py=Math.max(R+2,Math.min(H-R-2,py));
     if(blocked(px,py)||inLava(px,py,4)||naDom(u,px,py)){px=prev.x;py=prev.y}prev={x:px,y:py};fr.push(prev)}
+  // If the smooth curve would clip a wall/lava corner, use straight segments between frames for the whole dash (drawn and moved identically).
+  for(let t=0;t<NF-1;t+=.05){const P=naPos(fr,t);if(blocked(P.x,P.y,R-3)||inLava(P.x,P.y,3)){fr.lin=1;break}}
   return fr}
-function naStart(u){if(naDom(u)){u.ult=100;u.ultcd=1;return}const fr=naPath(u);if(fr){u.fr=fr;u.plan=.5;u.rv=0;u.hit=new Set();u.run=0;u.quiet=0;G.fx.push({x:u.x,y:u.y,r:60,t:.4,m:.4,col:'#3ee0ff'});log('🎞️ '+u.c.e+' วางเฟรม...')}else u.ult=60}
-function naPos(fr,t){const i=Math.min(NF-2,Math.floor(t)),f=t-i,p0=fr[Math.max(0,i-1)],p1=fr[i],p2=fr[i+1],p3=fr[Math.min(NF-1,i+2)],q=(a,b,c,d)=>.5*(2*b+(-a+c)*f+(2*a-5*b+4*c-d)*f*f+(-a+3*b-3*c+d)*f*f*f);return{x:q(p0.x,p1.x,p2.x,p3.x),y:q(p0.y,p1.y,p2.y,p3.y)}}
+function naStart(u){if(naDom(u)){u.ult=100;u.ultcd=1;return}const fr=naPath(u);if(fr){u.fr=fr;u.fr0=fr.map(f=>({x:f.x,y:f.y}));u.plan=.5;u.rv=0;u.hit=new Set();u.run=0;u.quiet=0;G.fx.push({x:u.x,y:u.y,r:60,t:.4,m:.4,col:'#3ee0ff'});log('🎞️ '+u.c.e+' วางเฟรม...')}else u.ult=60}
+function naPos(fr,t){if(fr.lin)return naLin(fr,t);const i=Math.min(NF-2,Math.floor(t)),f=t-i,p0=fr[Math.max(0,i-1)],p1=fr[i],p2=fr[i+1],p3=fr[Math.min(NF-1,i+2)],q=(a,b,c,d)=>.5*(2*b+(-a+c)*f+(2*a-5*b+4*c-d)*f*f+(-a+3*b-3*c+d)*f*f*f);return{x:q(p0.x,p1.x,p2.x,p3.x),y:q(p0.y,p1.y,p2.y,p3.y)}}
+function naLin(fr,t){const i=Math.min(NF-2,Math.floor(t)),f=t-i,a=fr[i],b=fr[i+1];return{x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f}}
 function naRun(u,dt){u.quiet=0;u.slow=0;
   if(u.plan>0){u.plan=Math.max(0,u.plan-dt);u.rv=Math.min(NF-1,(1-u.plan/.5)*(NF-1));if(u.plan<=0){u.run=NRUN;u.ft=0;u.rv=NF-1}return}
   u.run=Math.max(0,u.run-dt);u.root=0;
   for(let q=0;q<4;q++){u.ft+=dt/4;const t=Math.min(NF-1.001,u.ft/NRUN*(NF-1)),P=naPos(u.fr,t);u.fi=t;
-    // Homing: when an un-hit enemy is close to the path, curve the dash into it (the offset is capped so the route stays readable).
-    const of=u.off||(u.off={x:0,y:0});let px=P.x+of.x,py=P.y+of.y,hn=null,hd=70;
-    G.us.forEach(e=>{if(e.al&&e!==u&&!u.hit.has(e)){const d=Math.hypot(px-e.x,py-e.y);if(d<hd){hd=d;hn=e}}});
-    if(hn&&hd>R*2+8){const L=hd||1,st=Math.min(hd-(R*2+8),3.2);of.x+=(hn.x-px)/L*st;of.y+=(hn.y-py)/L*st;const om=Math.hypot(of.x,of.y);if(om>48){of.x*=48/om;of.y*=48/om}px=P.x+of.x;py=P.y+of.y}
-    if(!blocked(px,py,R-3)&&!inLava(px,py,3)){u.x=px;u.y=py}
+    // Homing: when an un-hit enemy is close, bend the FUTURE frames toward it (max 48px from the planned frame),
+    // so Naoya always stays exactly on the drawn frame path instead of drifting off it.
+    let hn=null,hd=70;
+    G.us.forEach(e=>{if(e.al&&e!==u&&!u.hit.has(e)){const d=Math.hypot(P.x-e.x,P.y-e.y);if(d<hd){hd=d;hn=e}}});
+    if(hn&&hd>R*2+8&&u.fr0){const L=hd||1,st=Math.min(hd-(R*2+8),3.2),dx=(hn.x-P.x)/L*st,dy=(hn.y-P.y)/L*st;
+      const sv=u.fr.map(f=>({x:f.x,y:f.y}));
+      for(let j=Math.floor(t)+1;j<NF;j++){const f=u.fr[j],o=u.fr0[j];let nx=f.x+dx,ny=f.y+dy;const ox=nx-o.x,oy=ny-o.y,om=Math.hypot(ox,oy);if(om>48){nx=o.x+ox*48/om;ny=o.y+oy*48/om}if(!blocked(nx,ny,R-3)&&!inLava(nx,ny,3)){f.x=nx;f.y=ny}}
+      // Undo the bend if the new path would clip a wall or lava anywhere ahead.
+      for(let q=t;q<NF-1;q+=.1){const B=naPos(u.fr,Math.min(NF-1.001,q));if(blocked(B.x,B.y,R-3)||inLava(B.x,B.y,3)){u.fr.forEach((f,j)=>{f.x=sv[j].x;f.y=sv[j].y});break}}}
+    let Q=naPos(u.fr,t);if(blocked(Q.x,Q.y,R-3)||inLava(Q.x,Q.y,3))Q=naLin(u.fr,t);if(!blocked(Q.x,Q.y,R-3)&&!inLava(Q.x,Q.y,3)){u.x=Q.x;u.y=Q.y}
     G.us.forEach(e=>{if(e.al&&e!==u&&!u.hit.has(e)&&D(u,e)<R*2+14){u.hit.add(e);hurt(e,30,u);e.root=Math.max(e.root,1);e.frz=1;e.frzImm=3.5;G.fx.push({x:e.x,y:e.y,r:22,t:.25,m:.25,col:'#3ee0ff'})}})}
   if(u.run<=0||u.ft>=NRUN){u.run=0;u.fr=null;u.ramp=0;u.off=null}}
 function unit(u,dt){
@@ -336,7 +347,7 @@ function upd(dt){
   G.us.forEach(u=>{u.bx=u.x;u.by=u.y});G.us.forEach(u=>unit(u,dt));
   G.tr=G.tr.filter(t=>!t.dead);
   const al=G.us.filter(u=>u.al);
-  for(let i=0;i<al.length;i++)for(let j=i+1;j<al.length;j++){const a=al[i],b=al[j],d=D(a,b);if(d>0&&d<R*1.8){const k=(R*1.8-d)/2/d,dx=(a.x-b.x)*k,dy=(a.y-b.y)*k;mv(a,dx,dy);mv(b,-dx,-dy)}}
+  for(let i=0;i<al.length;i++)for(let j=i+1;j<al.length;j++){const a=al[i],b=al[j],d=D(a,b);if(a.run>0||b.run>0)continue;if(d>0&&d<R*1.8){const k=(R*1.8-d)/2/d,dx=(a.x-b.x)*k,dy=(a.y-b.y)*k;mv(a,dx,dy);mv(b,-dx,-dy)}}
   G.pk=G.pk.filter(p=>{const u=al.find(u=>u.al&&Math.hypot(u.x-p.x,u.y-p.y)<14);if(!u)return 1;if(p.t=='heal')u.hp=Math.min(u.max,u.hp+u.max*.32);else u.b[p.t]=8;charge(u,25);sfx('pick');log(BF[p.t].e+' '+u.c.e+' เก็บบัฟ (+อันติ)');return 0});
   G.pj=G.pj.filter(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.t-=dt;if(p.orb){if(!G.orbs.includes(p.orb)||!p.o.al)return 0;const dd=Math.hypot(p.x-p.orb.x,p.y-p.orb.y);if(dd<16||(p.pv!==undefined&&dd>p.pv&&dd<45)){purple(p.o,p.orb);return 0}p.pv=dd;return p.t>0&&!blocked(p.x,p.y,1)}if(p.t<=0||blocked(p.x,p.y,1))return 0;const e=al.find(e=>e.al&&e!==p.o&&Math.hypot(e.x-p.x,e.y-p.y)<R+3);if(e){sfx('hit');hurt(e,p.d,p.o);if(p.sl)e.slow=1.8;if(p.rt)e.root=Math.max(e.root,p.rt);if(p.bl){const dx=p.o.x-e.x,dy=p.o.y-e.y,L=Math.hypot(dx,dy)||1;if(e.al){mv(e,dx/L*16,dy/L*16);e.root=Math.max(e.root,.25)}else G.orbs.push({x:e.x,y:e.y,o:p.o,t:0,life:18})}if(p.kb&&e.al){const dx=e.x-p.o.x,dy=e.y-p.o.y,L=Math.hypot(dx,dy)||1;mv(e,dx/L*26,dy/L*26)}return 0}return 1});
   if(G.pu&&(G.pu.t+=dt)>G.pu.dur)G.pu=null;G.orbs=G.orbs.filter(o=>o.o.al&&(o.t+=dt)<o.life);
