@@ -369,11 +369,11 @@ function drawBgFx(){
 function rockThrow(u,ax,ay,dist,swapTarget=null){
   const L0=Math.hypot(ax,ay)||1,dx=ax/L0,dy=ay/L0;
   u.rk={x:u.x+dx*14,y:u.y+dy*14,vx:dx*320,vy:dy*320,o:u,left:dist,rot:0,w:0,wt:0,landed:0,hit:0,swapTarget};
-  G.rk=G.rk||[];G.rk.push(u.rk);u.rkcd=RK_CD;u.ac=Math.max(u.ac,.3);u.quiet=0;sfx('dart');
+  G.rk=G.rk||[];G.rk.push(u.rk);u.rkcd=RK_CD;u.bgcd=BG_CD;u.ac=Math.max(u.ac,.3);u.quiet=0;sfx('dart');
   log('🪨 '+u.c.e+' โยนก้อนหิน!');
 }
 function rockTry(u,vs,tg){
-  if(u.rk||u.rkcd>0||u.stun>0||u.root>0||u.plan>0)return;
+  if(u.rk||u.rkcd>0||u.bgcd>0||u.stun>0||u.root>0||u.plan>0)return;
   const thr=vs.filter(e=>(e.tg===u||e.lh===u)&&D(u,e)<130),hf=u.hp/u.max;let ax=0,ay=0,dist=0,swapTarget=null;
   if(hf<.45&&thr.length){const n=thr.reduce((m,e)=>D(u,e)<D(u,m)?e:m,thr[0]);ax=u.x-n.x;ay=u.y-n.y;dist=150+Math.random()*40}
   else if(tg&&!(tg.dz>0&&false)){const d=D(u,tg);if(d>115&&d<270&&los(u,tg)){ax=tg.x-u.x;ay=tg.y-u.y;dist=Math.max(40,d-30);swapTarget=tg}}
@@ -421,15 +421,19 @@ function rockUpd(dt){
     r.wt-=dt;if(r.wt>0)return 1;
     // สลับที่กับก้อนหิน หรือส่งศัตรูไปแทนที่ก้อนหิน
     u.rk=null;
-    const target=r.swapTarget;
-    if(target&&target===r.hitTarget&&target.al&&bgOk(u,target)&&D(target,r)<R+8&&rockPointOk(r.x,r.y)){
+    // หินล่อเป้า: ไม่ต้องชนศัตรูตรง ๆ ขอแค่ตกใกล้ศัตรู
+    // เลือกศัตรูอีกตัวก่อนตัวที่โดนหิน เพื่อให้เกิดจังหวะหลอกสลับที่หลากหลาย
+    const nearby=G.us.filter(e=>e.al&&e!==u&&bgOk(u,e)&&rockPointOk(r.x,r.y)&&D(e,r)<62)
+      .sort((a,b)=>((a===r.hitTarget)?1:0)-((b===r.hitTarget)?1:0)||D(a,r)-D(b,r));
+    const target=nearby[0]||null;
+    if(target){
       const ox=target.x,oy=target.y;bgBurst(ox,oy);bgBurst(r.x,r.y);
       target.x=r.x;target.y=r.y;ejectFromWalls(target);
       breakNaoyaBySwap(target);
       target.stun=Math.max(target.stun||0,DZ_STUN*.7);target.dz=DZ_TIME*.7;target.slow=Math.max(target.slow||0,DZ_TIME);
       u.rev=Math.max(u.rev||0,.7);u.quiet=0;u.bgcd=BG_CD;
       G.ft.push({x:ox,y:oy-14,s:'👏',t:.8});sfx('clap');
-      log('🪨👏 '+u.c.e+' สลับ '+target.c.e+' กับก้อนหิน! ส่งไปอีกจุด 😵');
+      log('🪨👏 '+u.c.e+' โยนหินล่อเป้า! สลับ '+target.c.e+' กับก้อนหิน 😵');
       return 0;
     }
     if(u.stun>0||u.root>0||(G.dom&&inDomOf(u)!=inDomOf(r))||!rockPointOk(r.x,r.y)){bgBurst(r.x,r.y);return 0}
@@ -445,14 +449,22 @@ function rockUpd(dt){
 }
 function breakNaoyaBySwap(e){
   if(e.k!='nao')return;
-  const active=e.plan>0||e.run>0||e.pend||e.fr;
+  const cut=G.cut;
+  const inUlt=!!(cut&&cut.units&&cut.units.some(m=>m.u===e));
+  const active=e.plan>0||e.run>0||e.pend||e.fr||inUlt;
   if(active){
-    naCancel(e);
+    // ยกเลิกเฟรมและอันติทันที เหมือนโดนโจมตีขัดจังหวะ
+    naCancel(e);e.ult=0;e.ultcd=Math.max(e.ultcd||0,2);
+    if(cut&&cut.units&&['wind','intro'].includes(cut.ph)){
+      cut.units=cut.units.filter(m=>m.u!==e);
+      if(!cut.units.length)G.cut=null;
+    }
+    e.stun=Math.max(e.stun||0,DZ_STUN);
     e.frz=Math.max(e.frz||0,1.15);
     e.root=Math.max(e.root||0,.35);
     e.frzImm=0;
     G.fx.push({x:e.x,y:e.y,r:34,t:.35,m:.35,col:'#bff3ff'});
-    log('🪞 '+e.c.e+' ถูกบูกีวูกี้ขัดจังหวะ! ติดสตันและเฟรมกระจก');
+    log('🪞 '+e.c.e+' ถูกบูกีวูกี้ขัดจังหวะ! อันติถูกยกเลิก ติดสตันและเฟรมกระจก');
   }
 }
 function bgSwap(u,e){
