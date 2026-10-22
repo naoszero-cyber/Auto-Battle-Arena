@@ -79,7 +79,9 @@ const D=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),rc=(r,px,py,m=0)=>px>r[0]-m&&px<r[0]+
 const blocked=(px,py,r=R)=>px<r||py<r||px>W-r||py>H-r||G.A.walls.some(w=>rc(w,px,py,r-2));
 const log=s=>{G.lg.unshift(s);G.lg.length=Math.min(G.lg.length,5);$('#log').innerHTML=G.lg.join('<br>')};
 function los(a,b){const d=D(a,b),n=Math.ceil(d/10);for(let i=1;i<n;i++){const px=a.x+(b.x-a.x)*i/n,py=a.y+(b.y-a.y)*i/n;if(G.A.walls.some(w=>rc(w,px,py,1)))return 0}return 1}
-const vis=(a,b)=>{const d=D(a,b);return d<175&&(!b.hid||d<40)&&los(a,b)};
+const bushOf=u=>G.A.bush.findIndex(r=>rc(r,u.x,u.y));
+// Hiding: a hidden unit is only spotted up close (40px; 55 for assassins; 85 when both stand in the same bush; 30 under the shadow ult).
+const vis=(a,b)=>{const d=D(a,b);if(d>=175)return false;if(b.hid){const bi=bushOf(b),lim=b.stl>0?30:bi>=0&&bi===bushOf(a)?85:a.k=='ass'?55:40;if(d>=lim)return false}return los(a,b)};
 const inLava=(px,py,m=0)=>G.A.lava.some(l=>rc(l,px,py,m));
 function bad(u,px,py){return(inLava(px,py,6)&&!inLava(u.x,u.y))||G.tr.some(t=>(t.o===null||t.o===u||u.kt.has(t.id))&&Math.hypot(t.x-px,t.y-py)<17)}
 function mv(u,dx,dy){if(!blocked(u.x+dx,u.y))u.x+=dx;if(!blocked(u.x,u.y+dy))u.y+=dy}
@@ -112,7 +114,7 @@ function go(u,gx,gy,dt,mul=1){
 function nb(u,ex){let b=null,bd=1e9;G.A.bush.forEach(r=>{const cx=r[0]+r[2]/2,cy=r[1]+r[3]/2,d=Math.hypot(cx-u.x,cy-u.y);if(d<bd&&(!ex||Math.hypot(cx-ex.x,cy-ex.y)>Math.hypot(u.x-ex.x,u.y-ex.y)-30)){bd=d;b=[cx,cy,d]}});return b}
 function hurt(u,d,src,quiet){
   if(!u.al)return;if(u.frz>0&&src&&src!==u&&d>0&&!quiet){d*=1.4;u.frz=0;u.root=0;sfx('glass');G.fx.push({x:u.x,y:u.y,r:34,t:.3,m:.3,col:'#bff3ff'});G.fx.push({x:u.x,y:u.y,r:20,t:.2,m:.2,col:'#3ee0ff'});log('💎 กระจกที่ตรึง '+u.c.e+' แตก! ดาเมจ x1.4')}if(u.k=='nao'&&src&&d>0&&(u.run>0||Math.random()<.14)){G.fx.push({x:u.x,y:u.y,r:16,t:.2,m:.2,col:'#3ee0ff'});return}if(u.k=='nao'&&src&&d>0&&u.plan>0){u.plan=0;u.fr=null;u.root=Math.max(u.root,1);u.frz=1;u.ramp=0;log('💥 '+u.c.e+' ถูกขัดจังหวะตอนวางเฟรม ค้างเอง 1 วินาที!');return}if(u.k=='nao'&&src&&u.run<=0&&(u.ramp||0)>.6&&d>0){u.root=Math.max(u.root,1);u.frz=1;u.ramp=0;log('💥 '+u.c.e+' ถูกขัดจังหวะ ค้างเอง 1 วินาที!')}if(u.k=='gok'&&src&&(D(u,src)<48||u.ss>0))d*=.88;if(u.k=='goj'&&src)d*=.96;if(u.b.shd)d*=.65;u.hp-=d;
-  if(src){u.lh=src;u.quiet=0;if(u.k=='gok')charge(u,d*.45)}
+  if(src){u.lh=src;u.quiet=0;if(!(u.stl>0))u.rev=Math.max(u.rev||0,.9);if(u.k=='gok')charge(u,d*.45)}
   if(!quiet)G.ft.push({x:u.x,y:u.y-12,s:Math.max(1,Math.round(d)),t:.8});
   if(u.hp<=0){u.al=0;sfx('ko');log('💀 '+u.c.e+' '+u.c.n+' ถูกกำจัด'+(src?' โดย '+src.c.e:''))}
 }
@@ -129,7 +131,7 @@ function strike(u,e){
   let m=(u.b.pow?1.3:1)*(u.ss>0?SS[(u.ssStage||1)-1].power:1);const eng=e.tg&&e.tg!==u&&e.tg.al;
   if(u.hid&&u.quiet>1.2){if(!c.proj)sfx('backstab');m*=u.k=='ass'?2:1.5;log('🗡️ '+c.e+' ซุ่มโจมตี '+e.c.e+'!')}
   else if(eng){m*=1.4;if(Math.random()<.3)log('😈 '+c.e+' เล่นทีเผลอใส่ '+e.c.e)}
-  u.ac=c.ac;u.quiet=0;charge(u,12);
+  u.ac=c.ac;u.quiet=0;if(!(u.stl>0))u.rev=1.4;charge(u,12);
   const dmg=c.atk*m*(.9+Math.random()*.2);
   if(u.k=='mag'){
     const a=Math.atan2(e.y-u.y,e.x-u.x),S=Math.random()*4|0,
@@ -216,7 +218,7 @@ function think(u,dt,vs){
     if(counterWindow&&u.counterUltCut!==G.cut){u.counterUltCut=G.cut;counterRoll=Math.random()<CLASH_COUNTER_CHANCE}
     const near=G.us.filter(e=>e.al&&e!==u&&D(u,e)<(u.k=='mag'?145:u.k=='arc'?125:u.k=='war'?130:105));
     const threat=near.filter(e=>e.tg===u||e.lh===u).length;
-    const shouldUse=u.k=='gok'?!(u.ss>0)&&G.us.some(e=>e.al&&e!==u&&D(u,e)<240):u.k=='war'?near.length>=1:u.k=='arc'?(near.length>=2||threat>=1)&&near.some(e=>los(u,e)):u.k=='mag'?near.length>=2||threat>=1:u.k=='ass'?near.length>=1&&(threat>=1||hf<.65):u.k=='nao'?G.us.some(e=>e.al&&e!==u&&D(u,e)<200):near.length>=2||threat>=1;
+    const shouldUse=u.k=='gok'?!(u.ss>0)&&G.us.some(e=>e.al&&e!==u&&D(u,e)<240):u.k=='war'?near.length>=1:u.k=='arc'?(near.length>=2||threat>=1)&&near.some(e=>los(u,e)):u.k=='mag'?near.length>=2||threat>=1:u.k=='ass'?near.length>=1&&(threat>=1||hf<.65):u.k=='nao'?G.us.some(e=>e.al&&e!==u&&D(u,e)<230&&vis(u,e)):near.length>=2||threat>=1;
     if(counterRoll||shouldUse)castUlt(u,counterWindow)
   }let tg=null,bs=-9;
   vs.forEach(e=>{const eg=e.tg&&e.tg!==u&&e.tg.al&&D(e,e.tg)<70,s=(1-e.hp/e.max)*2+(e.hp<u.c.atk*2.5?1.5:0)+(eg?1.2:0)+(e.root>0?1:0)-D(u,e)/150+(e.lh===u?.4:0);if(s>bs){bs=s;tg=e}});
@@ -259,20 +261,39 @@ function think(u,dt,vs){
   else if(gx!==null&&!hold)go(u,gx,gy,dt,mode=='flee'?1.15:1);
 }
 function naTrail(u,dt){if(u.lx!==undefined){const mvd=Math.hypot(u.x-u.lx,u.y-u.ly);u.ramp=mvd>.4?Math.min(1,(u.ramp||0)+dt*.5):Math.max(0,(u.ramp||0)-dt*2.5)}u.lx=u.x;u.ly=u.y;u.gh=u.gh||[];u.gt=(u.gt||0)-dt;if(u.gt<=0){u.gt=u.run>0?.022:.05;u.gh.push({x:u.x,y:u.y});const mx=u.run>0?26:u.plan>0?3:7+Math.round((u.ramp||0)*8);while(u.gh.length>mx)u.gh.shift()}}
-const NF=12,NRUN=1.0,NST=.5;
+const NF=16,NRUN=1.0,NST=.5;
 const naDom=(u,x0=u.x,y0=u.y)=>!!G.dom&&Math.hypot(x0-G.dom.x,y0-G.dom.y)<G.dom.r+R+4;
-function naCancel(u){u.plan=0;u.run=0;u.fr=null;u.pend=0}
+function naCancel(u){u.plan=0;u.run=0;u.fr=null;u.pend=0;u.off=null}
+function naLine(a,b){const n=Math.ceil(D(a,b)/8);for(let i=1;i<n;i++){const px=a.x+(b.x-a.x)*i/n,py=a.y+(b.y-a.y)*i/n;if(blocked(px,py,R-2)||inLava(px,py,6))return 0}return 1}
+// Wall/lava-aware route between two points: BFS on the nav grid, then string-pulled to the fewest corner waypoints.
+function naRoute(a,b){if(naLine(a,b))return[];
+  const K=(c,r)=>r*GW+c,gx=v=>Math.max(0,Math.min(GW-1,v/CS|0)),gy=v=>Math.max(0,Math.min(GH-1,v/CS|0)),S=K(gx(a.x),gy(a.y)),T=K(gx(b.x),gy(b.y)),pv=new Int16Array(GW*GH).fill(-2),q=[S],dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];pv[S]=-1;
+  for(let i=0;i<q.length&&pv[T]==-2;i++){const c=q[i],cx=c%GW,cy=c/GW|0;for(const[dx,dy]of dirs){const nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=GW||ny>=GH)continue;const k=K(nx,ny);if(pv[k]!=-2)continue;const qx=nx*CS+CS/2,qy=ny*CS+CS/2;if(blocked(qx,qy,R-2)||inLava(qx,qy,6))continue;if(dx&&dy&&(blocked(cx*CS+CS/2+dx*CS,cy*CS+CS/2,R-2)||blocked(cx*CS+CS/2,cy*CS+CS/2+dy*CS,R-2)))continue;pv[k]=c;q.push(k)}}
+  if(pv[T]==-2)return[];
+  const path=[];for(let c=pv[T];c>=0&&c!==S;c=pv[c])path.push({x:c%GW*CS+CS/2,y:(c/GW|0)*CS+CS/2});path.reverse();
+  const out=[];let cur={x:a.x,y:a.y};for(let i=0;i<path.length;i++){const nx=path[i+1]||b;if(!naLine(cur,nx)){out.push(path[i]);cur=path[i]}}return out}
+// Aim ahead of a moving enemy: predict where it will be tm seconds from now (plan 0.5s + the part of the dash needed to reach it).
+function naLead(e,tm){const dx=e.x-(e.bx==null?e.x:e.bx),dy=e.y-(e.by==null?e.y:e.by),m=Math.hypot(dx,dy);if(m<.01||e.root>0||e.frz>0)return{x:e.x,y:e.y,t:1,e};
+  for(const sc of[1,.5]){const k=Math.min(95,m*60*tm)*sc/m,px=Math.max(R+2,Math.min(W-R-2,e.x+dx*k)),py=Math.max(R+2,Math.min(H-R-2,e.y+dy*k));if(!blocked(px,py)&&!inLava(px,py,6))return{x:px,y:py,t:1,e}}
+  return{x:e.x,y:e.y,t:1,e}}
 function naPath(u){const en=G.us.filter(e=>e.al&&e!==u&&vis(u,e));
-  const pts=[{x:u.x,y:u.y}];let cur=pts[0];const left=en.slice();
-  while(left.length){left.sort((a,b)=>D(cur,a)-D(cur,b));const e=left.shift();cur={x:e.x,y:e.y};pts.push(cur)}
-  // Too short (enemy right next to us) or no enemy in sight: extend / replace with random waypoints so the run is always long.
+  // Order: greedy chain, close targets first with a bonus for wounded ones (finish them).
+  const order=[],left=en.slice();let oc=u,sum=0;
+  while(left.length&&sum<700){left.sort((a,b)=>D(oc,a)*(.6+.4*a.hp/a.max)-D(oc,b)*(.6+.4*b.hp/b.max));const e=left.shift();sum+=D(oc,e);order.push(e);oc=e}
+  // Build the route (around walls and lava) with every target predicted at its own arrival time.
+  const chain=tm=>{const P=[{x:u.x,y:u.y}];let c=P[0];order.forEach((e,i)=>{const t=naLead(e,tm(i));naRoute(c,t).forEach(w=>P.push(w));P.push(t);c=t});return P};
+  let pts=chain(()=>.9);
+  if(order.length){const cum=[];let d=0;for(let i=1;i<pts.length;i++){d+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);if(pts[i].t)cum.push(d)}
+    const T=Math.max(d,1);pts=chain(i=>.5+Math.min(1,(cum[i]||d)/T))}
+  let cur=pts[pts.length-1];
   const plen=()=>{let t=0;for(let i=1;i<pts.length;i++)t+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);return t};
-  for(let n=0;n<8&&plen()<300;n++){for(let k=0;k<40;k++){const a=Math.random()*6.283,d=90+Math.random()*130,px=cur.x+Math.cos(a)*d,py=cur.y+Math.sin(a)*d;if(px<R+4||py<R+4||px>W-R-4||py>H-R-4||blocked(px,py)||inLava(px,py,6)||naDom(u,px,py))continue;cur={x:px,y:py};pts.push(cur);break}}
+  // Too short (enemy right next to us) or no enemy in sight: extend / replace with random waypoints so the run is always long.
+  for(let n=0;n<8&&plen()<300;n++){for(let k=0;k<40;k++){const a=Math.random()*6.283,d=90+Math.random()*130,px=cur.x+Math.cos(a)*d,py=cur.y+Math.sin(a)*d;if(px<R+4||py<R+4||px>W-R-4||py>H-R-4||blocked(px,py)||inLava(px,py,6)||naDom(u,px,py))continue;const c={x:px,y:py};if(!naLine(cur,c))continue;naRoute(cur,c).forEach(w=>pts.push(w));pts.push(c);cur=c;break}}
   if(pts.length<2)return null;
   const seg=[];let tot=0;for(let i=1;i<pts.length;i++){const L=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);seg.push(L);tot+=L}
   if(tot<20)return null;const fr=[];let prev=pts[0];
   for(let k=0;k<NF;k++){let sd=tot*k/(NF-1),i=0;while(i<seg.length-1&&sd>seg[i]){sd-=seg[i];i++}
-    const f=seg[i]?Math.min(1,sd/seg[i]):1,a=pts[i],b=pts[i+1],dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1,w=Math.sin(Math.PI*f)*12*(i%2?1:-1);
+    const f=seg[i]?Math.min(1,sd/seg[i]):1,a=pts[i],b=pts[i+1],dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1,w=b.t&&L>60?Math.sin(Math.PI*f)*9*(i%2?1:-1):0;
     let px=a.x+dx*f-dy/L*w,py=a.y+dy*f+dx/L*w;px=Math.max(R+2,Math.min(W-R-2,px));py=Math.max(R+2,Math.min(H-R-2,py));
     if(blocked(px,py)||inLava(px,py,4)||naDom(u,px,py)){px=prev.x;py=prev.y}prev={x:px,y:py};fr.push(prev)}
   return fr}
@@ -281,16 +302,21 @@ function naPos(fr,t){const i=Math.min(NF-2,Math.floor(t)),f=t-i,p0=fr[Math.max(0
 function naRun(u,dt){u.quiet=0;u.slow=0;
   if(u.plan>0){u.plan=Math.max(0,u.plan-dt);u.rv=Math.min(NF-1,(1-u.plan/.5)*(NF-1));if(u.plan<=0){u.run=NRUN;u.ft=0;u.rv=NF-1}return}
   u.run=Math.max(0,u.run-dt);u.root=0;
-  for(let q=0;q<4;q++){u.ft+=dt/4;const t=Math.min(NF-1.001,u.ft/NRUN*(NF-1)),P=naPos(u.fr,t);u.fi=t;u.x=P.x;u.y=P.y;
+  for(let q=0;q<4;q++){u.ft+=dt/4;const t=Math.min(NF-1.001,u.ft/NRUN*(NF-1)),P=naPos(u.fr,t);u.fi=t;
+    // Homing: when an un-hit enemy is close to the path, curve the dash into it (the offset is capped so the route stays readable).
+    const of=u.off||(u.off={x:0,y:0});let px=P.x+of.x,py=P.y+of.y,hn=null,hd=70;
+    G.us.forEach(e=>{if(e.al&&e!==u&&!u.hit.has(e)){const d=Math.hypot(px-e.x,py-e.y);if(d<hd){hd=d;hn=e}}});
+    if(hn&&hd>R*2+8){const L=hd||1,st=Math.min(hd-(R*2+8),3.2);of.x+=(hn.x-px)/L*st;of.y+=(hn.y-py)/L*st;const om=Math.hypot(of.x,of.y);if(om>48){of.x*=48/om;of.y*=48/om}px=P.x+of.x;py=P.y+of.y}
+    if(!blocked(px,py,R-3)&&!inLava(px,py,3)){u.x=px;u.y=py}
     G.us.forEach(e=>{if(e.al&&e!==u&&!u.hit.has(e)&&D(u,e)<R*2+14){u.hit.add(e);hurt(e,30,u);e.root=Math.max(e.root,1);e.frz=1;e.frzImm=3.5;G.fx.push({x:e.x,y:e.y,r:22,t:.25,m:.25,col:'#3ee0ff'})}})}
-  if(u.run<=0||u.ft>=NRUN){u.run=0;u.fr=null;u.ramp=0}}
+  if(u.run<=0||u.ft>=NRUN){u.run=0;u.fr=null;u.ramp=0;u.off=null}}
 function unit(u,dt){
   if(!u.al)return;
   for(const k in u.b)if((u.b[k]-=dt)<=0)delete u.b[k];
   u.stun=Math.max(0,(u.stun||0)-dt);u.slow=Math.max(0,u.slow-dt);u.root=Math.max(0,u.root-dt);u.dash=Math.max(0,u.dash-dt);u.fire=Math.max(0,u.fire-dt);u.nav=Math.max(0,(u.nav||0)-dt);u.stl=Math.max(0,(u.stl||0)-dt);u.ss=Math.max(0,(u.ss||0)-dt);u.hideCd=Math.max(0,(u.hideCd||0)-dt);
   u.ac-=dt;u.tcd-=dt;u.dcd-=dt;u.ultcd=Math.max(0,u.ultcd-dt);u.domcd=Math.max(0,(u.domcd||0)-dt);u.quiet+=dt;
   const bush=G.A.bush.some(b=>rc(b,u.x,u.y));
-  u.hid=(bush||(u.k=='ass'&&u.quiet>1.5)||u.stl>0)?1:0;
+  u.rev=Math.max(0,(u.rev||0)-dt);u.inb=bush;u.hid=(u.stl>0||(!(u.rev>0)&&(bush||(u.k=='ass'&&u.quiet>1.5))))?1:0;
   if(inLava(u.x,u.y))hurt(u,14*dt,null,1);
   if(G.t>70)hurt(u,(G.t-70)*.25*dt,null,1);
   if(u.quiet>3)u.hp=Math.min(u.max,u.hp+(bush?3:0.8)*dt);
@@ -338,7 +364,7 @@ function draw(){
     x.globalAlpha=u.hid?.5:1;x.strokeStyle=u.ss>0?SS[(u.ssStage||1)-1].col:u.c.col;x.lineWidth=u.ss>0?4:2.5;x.beginPath();x.arc(u.x,u.y,R+1,0,7);x.stroke();
     x.font='15px sans-serif';x.fillText(u.c.e,u.x,u.y+1);
     const f=u.hp/u.max;x.fillStyle='#0007';x.fillRect(u.x-11,u.y-R-8,22,4);x.fillStyle=f>.5?'#2ecc71':f>.25?'#f1c40f':'#e74c3c';x.fillRect(u.x-11,u.y-R-8,22*f,4);
-    x.fillStyle='#1119';x.fillRect(u.x-12,u.y+R+12,24,3);x.fillStyle=u.ult>=100?'#f1c40f':'#9b59b6';x.fillRect(u.x-12,u.y+R+12,24*u.ult/100,3);x.font='9px sans-serif';let s='';for(const k in u.b)s+=BF[k].e;if(u.ss>0)s+='⚡'+u.ssStage;if(u.root>0)s+='⛓️';if(u.stun>0)s+='💫';if(u.slow>0)s+='🐌';x.fillText(s,u.x,u.y+R+8);
+    x.fillStyle='#1119';x.fillRect(u.x-12,u.y+R+12,24,3);x.fillStyle=u.ult>=100?'#f1c40f':'#9b59b6';x.fillRect(u.x-12,u.y+R+12,24*u.ult/100,3);x.font='9px sans-serif';let s='';for(const k in u.b)s+=BF[k].e;if(u.ss>0)s+='⚡'+u.ssStage;if(u.root>0)s+='⛓️';if(u.stun>0)s+='💫';if(u.rev>0&&u.inb)s+='👁️';if(u.slow>0)s+='🐌';x.fillText(s,u.x,u.y+R+8);
   });
   x.globalAlpha=.5;x.fillStyle='#2e7d32';A.bush.forEach(r=>x.fillRect(...r));x.globalAlpha=1;
   G.bm.forEach(b=>{x.globalAlpha=Math.max(0,b.t/b.m);x.lineCap='round';x.strokeStyle=b.col;x.lineWidth=b.w;x.beginPath();x.moveTo(b.x,b.y);x.lineTo(b.x2,b.y2);x.stroke();x.strokeStyle='#fff';x.lineWidth=b.w/3;x.stroke();x.globalAlpha=1});G.fx.forEach(f=>{const k=1-f.t/f.m;x.globalAlpha=Math.max(0,.55*(1-k));x.fillStyle=f.col||'#e67e22';x.beginPath();x.arc(f.x,f.y,f.r*(.3+.7*k),0,7);x.fill();x.strokeStyle=f.col||'#e74c3c';x.lineWidth=3;x.stroke();x.globalAlpha=1});G.pj.forEach(p=>{x.save();if(p.bl||p.kb||p.orb){x.shadowColor=p.col;x.shadowBlur=14}x.fillStyle=p.col||'#222';x.beginPath();x.arc(p.x,p.y,p.r||3,0,7);x.fill();if(p.bl||p.kb||p.orb){x.fillStyle='#fff';x.beginPath();x.arc(p.x,p.y,(p.r||3)*.4,0,7);x.fill()}x.restore()});
